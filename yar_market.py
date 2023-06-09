@@ -3,6 +3,7 @@
 # 類別:     StockMarket 
 # 函式:     create_table, insert_data, execute_query  
 # 版本:     20230523-A01
+#           20230525-A02  I:get_xday;  M:get_code, get_time_period 
 import sqlite3
 import os
 import csv
@@ -10,11 +11,11 @@ import requests
 import datetime
 import time
 trading_hours = {
-    0: [(datetime.time(5, 0, 0),   datetime.time(8, 45, 0))],    # 日盤前
-    1: [(datetime.time(8, 45, 0),  datetime.time(13, 45, 0))],   # 日盤
-    2: [(datetime.time(13, 45, 0), datetime.time(15, 0, 0))],    # 夜盤前
-    3: [(datetime.time(15, 0, 0),  datetime.time(23, 59, 59)),   # 夜盤
-        (datetime.time(0, 0, 0),   datetime.time(5, 0, 0))]}     # 夜盤
+            0: (datetime.time(5, 0, 0),   datetime.time(8, 45, 0)),             # 日盤前
+            1: (datetime.time(8, 45, 0),  datetime.time(13, 45, 0)),            # 日盤
+            2: (datetime.time(13, 45, 0), datetime.time(15, 0, 0)),             # 夜盤前
+            3: (datetime.time(15, 0, 0),  datetime.time(23, 59, 59)),           # 夜盤
+            4: (datetime.time(0, 0, 0),  datetime.time(5, 0, 0))}               # 夜盤
 class StockMarket:
     # 類別 近兩年每日開市狀態與方法
     def __init__(self, path_db, path_tfex):
@@ -80,9 +81,23 @@ class StockMarket:
             start_date += delta
         insert_data(self.path_db, self.T01_NAME, rows, sql1="(date01, open01) VALUES (?, ?)") 
 
-    def get_status(self, day_str):
+    def get_status(self, day_str) -> bool:
         # 指定日期 得到是否為開市日
-        return self.status.get(day_str, False)        
+        return self.status.get(day_str, False)    
+
+    def get_xday(self, day_str) -> bool:
+        # 檢查指定日期 是否為月結日
+        if self.get_status(day_str):                                        # 休市日 不為月結日
+            return False
+        day0 = datetime.datetime.strptime(day_str, '%Y%m%d')                # 將 day_str 轉為日期格式 day0         
+        day = day0.replace(day=1)                                           # 設為當月第1天                                       
+        while day.weekday() != 2:                                           # 計算當月月結日
+            day += datetime.timedelta(days=1)                               # 當月第一個週三
+        day += datetime.timedelta(weeks=2)                                  # 當月第三個週三
+        dd_str = day.strftime('%Y%m%d')                                     # 月結日                                     
+        if not self.get_status(dd_str) :                                    # 判別 是否休市日
+            dd_str = self.get_Dayopen(dd_str, 1)                            # 取得 下一個開市日
+        return(day_str == dd_str)
 
     def get_Dayopen(self, day_str, direct):
         # 指定日期 和方向:1,-1 
@@ -103,17 +118,16 @@ class StockMarket:
     
     def get_code(self, day_str): 
         # 以日期求得小台指(當月/近月)商品代碼, (day_str:日期)
-        dd_str = day_str
-        day0 = datetime.datetime.strptime(dd_str, '%Y%m%d')                 # 將 day_str 轉為日期格式 day0         
+        day0 = datetime.datetime.strptime(day_str, '%Y%m%d')                # 將 day_str 轉為日期格式 day0         
         day = day0.replace(day=1)                                           # 設為當月第1天                                       
         while day.weekday() != 2:                                           # 計算當月月結日
             day += datetime.timedelta(days=1)                               # 當月第一個週三
         day += datetime.timedelta(weeks=2)                                  # 當月第三個週三
-        dd_str = day.strftime('%Y%m%d')                                     # 透過函數 判斷如果月結日是休市日，求得新的當月月結日 day
-        if not self.get_status(day_str) :                                   # 判別 day是休市日
-            day_str = self.get_Dayopen(day_str, 1)                          # 取得 下一個開市日
-            day = datetime.datetime.strptime(dd_str, '%Y%m%d')
-        if day0 > day:                                                      # 如果 day0 >月結日  則 day 設定為下一個月
+        dd_str = day.strftime('%Y%m%d')                                     # 
+        if not self.get_status(dd_str) :                                    # 判別 day是休市日
+            dd_str = self.get_Dayopen(dd_str, 1)                            # 取得 下一個開市日
+            day = datetime.datetime.strptime(dd_str, '%Y%m%d')              # 月結日
+        if day0 > day:                                                      # 如果 day0>月結日  則 day 設定為下一個月
             year, month = (day.year + 1, 1) if day.month == 12 else (day.year, day.month + 1)       # 處理跨年問題
         else:
             year, month =(day.year,day.month)     
@@ -136,23 +150,23 @@ class StockMarket:
                         url = f"https://www.taifex.com.tw/file/taifex/Dailydownload/Dailydownload/{url0}" 
                         download_file(url, fname, retries=3, wait_time=1, min_size=1024)                    
             cur_date += datetime.timedelta(days=1)
-
-# ------------------------------------------------------------------------------------------------------
-def get_time_period(t_str=''):
-    # 取得 時間段編號  -1:無法辨識; 0:日盤前; 1:日盤; 2:夜盤前; 3:夜盤 
-    try:
-        if t_str=='':
-            time_obj =datetime.datetime.now().time()
-        else:
-            t=('000000' + t_str[:-6])
-            time_obj = datetime.datetime.strptime(t[-6:], "%H%M%S").time()
-    except ValueError:
-        return -1
-    for period, time_ranges in trading_hours.items():
-        for start_time, end_time in time_ranges:
+    
+    def get_time_period(self,t_str='') -> int:
+        # 取得 時間段編號  -1:無法辨識; 0:日盤前; 1:日盤; 2:夜盤前; 3:夜盤 
+        try:
+            if t_str=='':
+                time_obj =datetime.datetime.now().time()
+            else:
+                t=('000000' + t_str[:-6])
+                time_obj = datetime.datetime.strptime(t[-6:], "%H%M%S").time()
+        except ValueError:
+            return -1
+        for period, (start_time, end_time) in trading_hours.items():
             if start_time <= time_obj < end_time:
-                return period
-    return -1
+                    return period
+        return -1
+# ------------------------------------------------------------------------------------------------------
+
 
 def download_file(url: str, fname: str, retries: int = 3, wait_time: int = 1, min_size: int = 1024) -> bool:
     # 下載檔案，如果下載失敗會進行重試，直到下載成功或達到重試次數為止。

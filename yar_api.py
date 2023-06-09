@@ -2,10 +2,23 @@
 # 功能:         元大行情API接口   YuantaQuoteAXCtrl  (YuantaQuote_v2.1.2.9.ocx) (2022/11/29)
 # 限制:         Python(3.9.13-Win32)  wxPython(4.1.1)  comtypes(1.1.11)      
 # 版本:         20230523-b15
+import logging
+logging.basicConfig(
+    level=logging.WARNING,
+    filename='yar.log',
+    filemode='w',
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    style='%',
+    force=True
+)
+# 建立 logger 物件
+logger = logging.getLogger(__name__)
+
 import ctypes 
 import comtypes
 import comtypes.client
-import os
+import time
 from datetime import date
 class YuantaQuoteAXCtrl:
     def __init__(self, parent):
@@ -28,19 +41,20 @@ class YuantaQuoteAXCtrl:
     def api_Logon(self,acc, pwd, port, reqType):
         # api 帳號密碼登入      reqType:(日盤 1, 夜盤 2)    port:(日盤 80/443, 夜盤 82/442)
         ret=self.ctrl.SetMktLogon(acc, pwd, 'apiquote.yuantafutures.com.tw', port, reqType, 0)
-        #logging.info(f"api_Logon:{acc}, {pwd}, {port}, {reqType}  ({ret})")
+        time.sleep(3)
+        logging.info(f"api_Logon:{acc}, {pwd}, {port}, {reqType}  ({ret})")        
 
     def api_Register(self, symbol, reqType):
         # Qapi 商品代號 註冊    Symbol:商品代號;   reqType:(日盤 True, 夜盤 False)
-        ret=self.ctrl.AddMktReg (symbol, 4 , reqType, 0)
-        #logging.info(f"api_register:{symbol}, {reqType}  ({ret})")
-
+        ret=self.ctrl.AddMktReg (symbol, '4' , reqType, 0)   # 註冊方式UpdateMode 1:Snapshot當時最新資料,2:Update註冊後的所有更新,4:(1+2)
+        time.sleep(1)
+        logging.info(f"api_register:{symbol}, {reqType}  ({ret})")
+    
     def api_UnRegister(self, symbol):
         # Qapi 商品代號 註消
-        ret1=self.ctrl.DelMktReg (symbol, 0)
-        ret2=self.ctrl.DelMktReg (symbol, 1)
-        #logging.info(f"api_UnRegister:{symbol}  ({ret1}) ({ret2}) ")
-
+        ret=self.ctrl.DelMktReg (symbol, 0)
+        time.sleep(1)
+        #logging.info(f"api_UnRegister:{symbol}  ({ret}) ")
     # ------------------------------------------------------------------------API 主動回報
     def OnMktStatusChange(self,this,Status,Msg,ReqType):
         #狀態回報(連線/登入)
@@ -64,7 +78,7 @@ class YuantaQuoteAXCtrl:
         
     def OnGetFutStatus(self, this,symbol,FunctionCode,BreakTime,StartTime,ReopenTime,ReqType):
         #logging.info(f"OnGetFutStatus:{this},{symbol},{FunctionCode},{BreakTime},{StartTime},{ReopenTime},{ReqType}")
-        self.frame_wrapper.OnGetFutStatus(symbol)                                           
+        return                                          
     
     def OnGetMktQuote(self,this,symbol,DisClosure,Duration,ReqType):
         #logging.info(f"OnGetMktQuote:{this},{symbol},{DisClosure},{Duration},{ReqType}")
